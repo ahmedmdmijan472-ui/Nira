@@ -1,0 +1,6 @@
+{
+  "name": "NIRA",
+  "description": "NIRA - Premium Multilingual AI Voice Assistant with natural speech, dynamic voice visualization, and intelligent conversation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

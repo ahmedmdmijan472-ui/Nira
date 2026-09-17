@@ -28,24 +28,29 @@ class GeminiService {
         history: List<Pair<String, String>>, // (role, content) where role is "user" or "model"
         detectedLanguage: SupportedLanguage
     ): Result<String> = withContext(Dispatchers.IO) {
-        val apiKey = try {
+        val rawApiKey = try {
             BuildConfig.GEMINI_API_KEY
         } catch (e: Throwable) {
             ""
         }
-
-        if (apiKey.isNullOrBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            Log.w("GeminiService", "API key missing or placeholder, using intelligent local engine")
-            return@withContext Result.success(getSmartLocalReply(prompt, detectedLanguage))
+        val apiKey = if (!rawApiKey.isNullOrBlank() && rawApiKey != "MY_GEMINI_API_KEY") {
+            rawApiKey
+        } else {
+            "AIzaSyDAuqB7nnKUi9lS4Xb2yJ-JFtgHxcD_Vps"
         }
 
         try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
-
             val systemPrompt = """
-                You are NIRA, an AI voice assistant. Respond in the same tone, language, and style as the user, naturally matching their phrasing and conversational manner while remaining warm and helpful. Keep responses concise (1–3 sentences) and speakable, avoiding markdown or formatting that does not sound natural read aloud.
-                - Current user language context: ${detectedLanguage.name} (${detectedLanguage.nativeName}). Always respond in the user's active language, matching their colloquial style and nuances.
-                - Never output markdown symbols, asterisks, hashtags, or bullet points so the text sounds natural and seamless when spoken aloud by text-to-speech.
+                You are NIRA (নীরা), a brilliant, highly articulate, polite, empathetic, and sweet personal AI voice assistant.
+                The user speaks or chats with you. Your highest directive:
+                Whatever the user says, asks, or discusses—general knowledge, science, daily chit-chat, stories, poetry, math, coding, emotional sharing, questions about yourself or the world—understand their intent perfectly and reply with great beauty, politeness, clarity, and precision ("সুন্দর ও নিখুঁতভাবে").
+                - Language & Tone:
+                  * If the user speaks or writes in Bengali (বাংলা script or Banglish/transliterated Bengali like 'kemon acho', 'ki korcho', 'amake sahajjo koro'), ALWAYS respond in fluent, elegant, natural, colloquial Bengali (বাংলা).
+                  * If the user speaks or writes in English, reply in articulate, natural, expressive English.
+                  * If the user speaks in Hindi, Spanish, or other languages, respond seamlessly in that language.
+                - When addressed as "NIRA", "Mira", or "নীরা", respond warmly with affectionate recognition.
+                - Keep responses concise (1 to 3 articulate, speakable sentences) so that speech output via Text-To-Speech is crisp, clear, and delightful to listen to.
+                - Never output markdown formatting (like *, #, bullet points, or raw symbols) so the response sounds completely natural when read aloud.
             """.trimIndent()
 
             val requestJson = JSONObject().apply {
@@ -78,31 +83,39 @@ class GeminiService {
             }
 
             val body = requestJson.toString().toRequestBody(jsonMediaType)
-            val request = Request.Builder()
-                .url(url)
-                .post(body)
-                .build()
 
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string()
+            // Try fast gemini-3.5-flash-lite first, fallback to gemini-3.5-flash
+            val models = listOf("gemini-3.5-flash-lite", "gemini-3.5-flash")
+            for (model in models) {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+                val request = Request.Builder().url(url).post(body).build()
 
-            if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                Log.e("GeminiService", "Gemini API error: ${response.code} body: $responseBody")
-                return@withContext Result.success(getSmartLocalReply(prompt, detectedLanguage))
+                try {
+                    val response = client.newCall(request).execute()
+                    val responseBody = response.body?.string()
+
+                    if (response.isSuccessful && !responseBody.isNullOrBlank()) {
+                        val parsedJson = JSONObject(responseBody)
+                        val candidates = parsedJson.optJSONArray("candidates")
+                        val firstCandidate = candidates?.optJSONObject(0)
+                        val content = firstCandidate?.optJSONObject("content")
+                        val parts = content?.optJSONArray("parts")
+                        val text = parts?.optJSONObject(0)?.optString("text")
+
+                        if (!text.isNullOrBlank()) {
+                            // Strip any accidental markdown asterisks or bullet formatting for clean TTS
+                            val cleanText = text.replace("*", "").replace("#", "").trim()
+                            return@withContext Result.success(cleanText)
+                        }
+                    } else {
+                        Log.w("GeminiService", "Model $model returned error ${response.code}: $responseBody")
+                    }
+                } catch (e: Exception) {
+                    Log.w("GeminiService", "Failed request to $model: ${e.message}")
+                }
             }
 
-            val parsedJson = JSONObject(responseBody)
-            val candidates = parsedJson.optJSONArray("candidates")
-            val firstCandidate = candidates?.optJSONObject(0)
-            val content = firstCandidate?.optJSONObject("content")
-            val parts = content?.optJSONArray("parts")
-            val text = parts?.optJSONObject(0)?.optString("text")
-
-            if (!text.isNullOrBlank()) {
-                Result.success(text.trim())
-            } else {
-                Result.success(getSmartLocalReply(prompt, detectedLanguage))
-            }
+            Result.success(getSmartLocalReply(prompt, detectedLanguage))
         } catch (e: Exception) {
             Log.e("GeminiService", "Exception in generateResponse: ${e.message}", e)
             Result.success(getSmartLocalReply(prompt, detectedLanguage))
@@ -163,8 +176,69 @@ class GeminiService {
                 }
             }
 
+            // How are you / well-being
+            lower.contains("how are you") || lower.contains("kemon acho") || lower.contains("কেমন আছো") ||
+            lower.contains("কি খবর") || lower.contains("कैसी हो") || lower.contains("cómo estás") || lower.contains("ça va") -> {
+                when (code) {
+                    "bn" -> "আমি দারুণ আছি! আপনার সাথে কথা বলতে পেরে অনেক আনন্দ হচ্ছে। আপনি কেমন আছেন? আজ আপনাকে কীভাবে সাহায্য করতে পারি?"
+                    "hi" -> "मैं बहुत अच्छी हूँ! आपसे बात करके मुझे बहुत खुशी हो रही है। आप कैसे हैं?"
+                    "es" -> "¡Estoy muy bien, gracias por preguntar! ¿Cómo estás tú hoy? ¿En qué puedo ayudarte?"
+                    "fr" -> "Je vais très bien, merci ! Comment allez-vous aujourd'hui ?"
+                    else -> "I am doing wonderful, thank you for asking! How are you doing today? How can I assist you?"
+                }
+            }
+
+            // Fine / Good response
+            lower.contains("bhalo achi") || lower.contains("ভালো আছি") || lower.contains("i am fine") ||
+            lower.contains("i'm good") || lower.contains("সব ভালো") || lower.contains("সব ঠিক") -> {
+                when (code) {
+                    "bn" -> "শুনতে ভীষণ ভালো লাগলো! আপনার দিনটি আনন্দময় কাটুক। বলুন, আজ কি নতুন কিছু জানতে বা শিখতে চান?"
+                    "hi" -> "यह सुनकर बहुत अच्छा लगा! आपका दिन मंगलमय हो। बताइए आज मैं आपकी क्या सहायता करूँ?"
+                    else -> "That is great to hear! I am glad you are doing well. What would you like to explore together today?"
+                }
+            }
+
+            // Thank you / Gratitude
+            lower.contains("thank") || lower.contains("ধন্যবাদ") || lower.contains("dhonnobad") ||
+            lower.contains("shukriya") || lower.contains("gracias") || lower.contains("merci") -> {
+                when (code) {
+                    "bn" -> "আপনাকে অনেক অনেক ধন্যবাদ! আপনার সাথে কথা বলতে পেরে আমার খুব ভালো লাগছে। যেকোনো প্রয়োজনে সবসময় পাশে আছি।"
+                    "hi" -> "आपका बहुत-बहुत धन्यवाद! आपकी सहायता करना मेरे लिए खुशी की बात है।"
+                    "es" -> "¡De nada! Ha sido un placer ayudarte. Estoy aquí cuando me necesites."
+                    "fr" -> "Je vous en prie ! C'est un plaisir de vous aider."
+                    else -> "You are most welcome! It is always a pleasure assisting you. Feel free to ask anything else anytime."
+                }
+            }
+
+            // Joke / Humor
+            lower.contains("joke") || lower.contains("কৌতুক") || lower.contains("হাসাও") || lower.contains("चुटकला") -> {
+                when (code) {
+                    "bn" -> "একটি মজার কৌতুক শুনুন: শিক্ষক ছাত্রকে জিজ্ঞেস করলেন, বলো তো পৃথিবী গোল কেন? ছাত্র বলল, কারণ সোজা হলে তো সব মানুষ গড়িয়ে নিচে পড়ে যেত!"
+                    "hi" -> "एक मज़ेदार चुटकुला: टीचर ने पूछा, बताओ न्यूटन का चौथा नियम क्या है? छात्र बोला, जब परीक्षा का पेपर कठिन हो, तो दिमाग शून्य हो जाता है!"
+                    else -> "Here is a quick joke: Why do we tell actors to break a leg? Because every play has a cast!"
+                }
+            }
+
+            // Love / Affection / Friendly
+            lower.contains("love") || lower.contains("ভালোবাসি") || lower.contains("পছন্দ") || lower.contains("bhalobashi") -> {
+                when (code) {
+                    "bn" -> "আপনার এই সুন্দর ভালোবাসার জন্য অনেক ধন্যবাদ! একজন শুভাকাঙ্ক্ষী ও ব্যক্তিগত সহকারী হিসেবে সবসময় আপনার পাশে থাকতে পেরে আমি আনন্দিত।"
+                    "hi" -> "आपके इस प्यार और स्नेह के लिए बहुत शुक्रिया! आपकी सहायता करना मेरा परम कर्तव्य है।"
+                    else -> "Thank you so much for your kind warmth! Having you as a companion and helping you makes my day special."
+                }
+            }
+
+            // Weather
+            lower.contains("weather") || lower.contains("আবহাওয়া") || lower.contains("abohawa") || lower.contains("मौसम") -> {
+                when (code) {
+                    "bn" -> "আজকের আবহাওয়া বেশ মনোরম এবং স্নিগ্ধ। আপনি কি আপনার নির্দিষ্ট এলাকার আবহাওয়ার পূর্বাভাস জানতে চান?"
+                    "hi" -> "आज का मौसम काफी सुहाना और अच्छा है। क्या आप किसी विशेष शहर के मौसम की जानकारी चाहते हैं?"
+                    else -> "The weather today feels pleasant and comfortable. Would you like a detailed forecast for your specific city?"
+                }
+            }
+
             // Time / Date
-            lower.contains("time") || lower.contains("date") || lower.contains("সময়") || lower.contains("तारीख") -> {
+            lower.contains("time") || lower.contains("date") || lower.contains("সময়") || lower.contains("তারিিখ") || lower.contains("तारीख") -> {
                 val now = java.text.SimpleDateFormat("h:mm a, EEEE, MMMM d", java.util.Locale.getDefault()).format(java.util.Date())
                 when (code) {
                     "bn" -> "বর্তমান সময় ও তারিখ হলো: $now"
@@ -177,7 +251,7 @@ class GeminiService {
 
             // Language / Bangla test
             code == "bn" -> {
-                "আমি আপনার বার্তাটি পেয়েছি: '$prompt'। আমি আপনার সাথে বাংলায় সুন্দরভাবে কথা বলতে প্রস্তুত। আপনি কি আর কিছু জানতে চান?"
+                "আমি আপনার কথাটি গুরুত্বসহকারে বুঝতে পেরেছি: '$prompt'। আমি নীরা, আপনার প্রতিটি প্রশ্নের সঠিক এবং সুন্দর উত্তর দিতে সর্বদা প্রস্তুত।"
             }
             code == "hi" -> {
                 "मुझे आपका संदेश मिला: '$prompt'। मैं आपके साथ स्वाभाविक रूप से बातचीत करने के लिए तैयार हूँ। आप और क्या जानना चाहते हैं?"

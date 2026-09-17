@@ -30,6 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.HearingDisabled
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -118,6 +120,20 @@ fun VoiceChatScreen(
         }
     }
 
+    var isHandsFreeActive by remember { mutableStateOf(true) }
+    var previousVoiceState by remember { mutableStateOf(voiceState) }
+
+    // When NIRA finishes speaking in hands-free mode, seamlessly listen for next user utterance
+    LaunchedEffect(voiceState) {
+        if (previousVoiceState == VoiceState.SPEAKING && voiceState == VoiceState.IDLE) {
+            if (isHandsFreeActive && hasAudioPermission) {
+                kotlinx.coroutines.delay(450)
+                viewModel.startListening()
+            }
+        }
+        previousVoiceState = voiceState
+    }
+
     // Auto-listen when screen opens if audio permission is granted
     LaunchedEffect(Unit) {
         if (hasAudioPermission) {
@@ -138,7 +154,7 @@ fun VoiceChatScreen(
     val activeLanguage = if (voiceSettings.autoDetectLanguage) detectedLang else selectedLang
 
     val statusText = when (voiceState) {
-        VoiceState.IDLE -> "Tap the microphone to speak"
+        VoiceState.IDLE -> if (isHandsFreeActive) "Ready to listen • Speak or tap mic" else "Tap the microphone to speak"
         VoiceState.LISTENING -> "Listening to your voice..."
         VoiceState.THINKING -> "NIRA is thinking..."
         VoiceState.SPEAKING -> "NIRA is speaking"
@@ -276,6 +292,27 @@ fun VoiceChatScreen(
                             imageVector = Icons.Default.RecordVoiceOver,
                             contentDescription = "Switch Voice Gender",
                             tint = if (voiceSettings.voiceGender == VoiceGender.FEMALE) NiraCyan else NiraViolet
+                        )
+                    }
+
+                    // Continuous Hands-Free Conversation Toggle
+                    IconButton(
+                        onClick = {
+                            isHandsFreeActive = !isHandsFreeActive
+                            if (isHandsFreeActive && voiceState == VoiceState.IDLE && hasAudioPermission) {
+                                viewModel.startListening()
+                            }
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(if (isHandsFreeActive) NiraEmerald.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant)
+                            .testTag("hands_free_voice_toggle_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isHandsFreeActive) Icons.Default.Hearing else Icons.Default.HearingDisabled,
+                            contentDescription = if (isHandsFreeActive) "Hands-Free Listening Active" else "Hands-Free Listening Disabled",
+                            tint = if (isHandsFreeActive) NiraEmerald else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 

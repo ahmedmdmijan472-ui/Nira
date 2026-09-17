@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,12 +91,21 @@ fun HomeScreen(
     val voiceState by viewModel.speechManager.voiceState.collectAsState()
     var showLanguageSheet by remember { mutableStateOf(false) }
 
-    val quickPrompts = listOf(
-        "Hello NIRA! Tell me something fascinating today." to "🌍 Curiosity",
-        "Explain quantum computing simply in ${selectedLang.name}." to "🔬 Science",
-        "Help me write a creative email to my team." to "✍️ Writing",
-        "What are the top 3 productivity tips for today?" to "⚡ Tips"
-    )
+    val quickPrompts = if (selectedLang.code == "bn") {
+        listOf(
+            "কেমন আছো নীরা? আজ তোমার দিন কেমন কাটছে?" to "🌸 কুশল বিনিময়",
+            "আমাকে একটি সুন্দর শিক্ষণীয় গল্প শোনাও" to "📖 ছোট গল্প",
+            "আজকের চমৎকার একটি অনুপ্রেরণামূলক উক্তি বলো" to "💡 অনুপ্রেরণা",
+            "সহজ ভাষায় বলো কৃত্রিম বুদ্ধিমত্তা কী?" to "🤖 প্রযুক্তি"
+        )
+    } else {
+        listOf(
+            "Hello NIRA! Tell me something fascinating today." to "🌍 Curiosity",
+            "Explain quantum computing simply in ${selectedLang.name}." to "🔬 Science",
+            "Help me write a creative email to my team." to "✍️ Writing",
+            "What are the top 3 productivity tips for today?" to "⚡ Tips"
+        )
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -235,39 +246,143 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            // Hero Orb & Greeting Section
+            // Welcome to NIRA - Featured Welcome Experience
             item {
-                Column(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .clip(RoundedCornerShape(24.dp))
+                        .testTag("welcome_to_nira_card"),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
                 ) {
-                    NiraOrbAvatar(
-                        voiceState = voiceState,
-                        size = 140.dp,
+                    Box(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { onNavigateToVoiceChat() }
-                            .testTag("hero_orb_avatar")
-                    )
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        MaterialTheme.colorScheme.surface
+                                    )
+                                )
+                            )
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            NiraEmerald.copy(alpha = 0.6f),
+                                            NiraCyan.copy(alpha = 0.4f),
+                                            NiraViolet.copy(alpha = 0.3f)
+                                        )
+                                    )
+                                ),
+                                RoundedCornerShape(24.dp)
+                            )
+                            .padding(20.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Welcome Pill Badge
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = NiraEmerald.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, NiraEmerald.copy(alpha = 0.4f))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(text = "✨", fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (selectedLang.code == "bn") "স্বাগতম নীরাতে • Welcome to NIRA" else "Welcome to NIRA AI",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.5.sp
+                                        ),
+                                        color = NiraEmerald
+                                    )
+                                }
+                            }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
-                    Text(
-                        text = "How can I help you?",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                            // Interactive Pulsing NIRA Orb
+                            NiraOrbAvatar(
+                                voiceState = voiceState,
+                                size = 136.dp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { onNavigateToVoiceChat() }
+                                    .testTag("hero_orb_avatar")
+                            )
 
-                    Text(
-                        text = selectedLang.sampleGreeting,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp, start = 16.dp, end = 16.dp)
-                    )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Text(
+                                text = if (selectedLang.code == "bn") "স্বাগতম! আমি নীরা" else "Welcome to NIRA",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+
+                            Text(
+                                text = if (selectedLang.code == "bn")
+                                    "আমাকে যা বলবেন, আমি নিখুঁত ও সুন্দরভাবে প্রতিটি কথার উত্তর দেব।"
+                                else
+                                    "Whatever you ask, NIRA understands and replies with articulate perfection.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 6.dp, start = 8.dp, end = 8.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Audio Welcome Greeting Button
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                modifier = Modifier
+                                    .clickable {
+                                        val welcomeSpeech = if (selectedLang.code == "bn") {
+                                            "স্বাগতম! আমি নীরা, আপনার এআই ভয়েস সহকারী। আপনি আমাকে যেকোনো প্রশ্ন করতে পারেন, আমি নিখুঁত এবং সুন্দরভাবে উত্তর দেব।"
+                                        } else {
+                                            "Welcome to NIRA! I am your intelligent AI assistant. Ask me anything, and I will be delighted to answer."
+                                        }
+                                        viewModel.speakText(welcomeSpeech, selectedLang.code)
+                                    }
+                                    .testTag("welcome_hear_greeting_button")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VolumeUp,
+                                        contentDescription = "Hear Welcome Greeting",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (selectedLang.code == "bn") "নীরা’র স্বাগতম বার্তা শুনুন" else "Hear NIRA's Welcome",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

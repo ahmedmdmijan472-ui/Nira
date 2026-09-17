@@ -55,6 +55,7 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
     var onSpeechResultCallback: ((String) -> Unit)? = null
     var onPartialSpeechResultCallback: ((String) -> Unit)? = null
     var onSpeechErrorCallback: ((String) -> Unit)? = null
+    var onSpeakingCompleteCallback: (() -> Unit)? = null
 
     init {
         mainHandler.post {
@@ -85,6 +86,9 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
                 override fun onDone(utteranceId: String?) {
                     if (_voiceState.value == VoiceState.SPEAKING) {
                         _voiceState.value = VoiceState.IDLE
+                    }
+                    mainHandler.post {
+                        onSpeakingCompleteCallback?.invoke()
                     }
                 }
 
@@ -233,22 +237,8 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
                     override fun onError(error: Int) {
                         _rmsLevel.value = 0f
                         _rawDb.value = -2f
+                        val lastHeard = _partialTranscript.value.trim()
                         _partialTranscript.value = ""
-                        _voiceState.value = VoiceState.IDLE
-
-                        val errorMessage = when (error) {
-                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error. Please check microphone."
-                            SpeechRecognizer.ERROR_CLIENT -> "Speech recognition client error."
-                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required."
-                            SpeechRecognizer.ERROR_NETWORK -> "Network error during speech recognition."
-                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition network timeout."
-                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Tap to try again."
-                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech service is busy. Please try again."
-                            SpeechRecognizer.ERROR_SERVER -> "Speech recognition server error."
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech heard."
-                            else -> "Speech recognition error ($error)"
-                        }
-                        Log.d("NiraSpeechManager", "Speech recognition error: $errorMessage")
 
                         // Destroy instance on error to prevent stuck state
                         try {
@@ -258,6 +248,33 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
                             Log.w("NiraSpeechManager", "Error resetting recognizer after error: ${e.message}")
                         }
 
+                        // Seamless recovery: if speech was captured partially before timeout/no_match, process it!
+                        if (lastHeard.isNotBlank() && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+                            Log.d("NiraSpeechManager", "Recovered speech input from partial transcript on error $error: $lastHeard")
+                            _voiceState.value = VoiceState.THINKING
+                            onSpeechResultCallback?.invoke(lastHeard)
+                            return
+                        }
+
+                        _voiceState.value = VoiceState.IDLE
+
+                        // Avoid alarming error messages on natural pauses or timeouts
+                        if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                            Log.d("NiraSpeechManager", "Natural silence / no input detected ($error)")
+                            return
+                        }
+
+                        val errorMessage = when (error) {
+                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error. Please check microphone."
+                            SpeechRecognizer.ERROR_CLIENT -> "Speech recognition client error."
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required."
+                            SpeechRecognizer.ERROR_NETWORK -> "Network error during speech recognition."
+                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition network timeout."
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech service is busy. Please try again."
+                            SpeechRecognizer.ERROR_SERVER -> "Speech recognition server error."
+                            else -> "Speech recognition error ($error)"
+                        }
+                        Log.d("NiraSpeechManager", "Speech recognition error: $errorMessage")
                         onSpeechErrorCallback?.invoke(errorMessage)
                     }
 
@@ -265,10 +282,12 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
                         _rmsLevel.value = 0f
                         _rawDb.value = -2f
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val text = matches?.firstOrNull()?.trim()
+                        val text = matches?.firstOrNull { it.isNotBlank() }?.trim()
+                            ?: _partialTranscript.value.trim()
                         _partialTranscript.value = ""
 
                         if (!text.isNullOrBlank()) {
+                            _voiceState.value = VoiceState.THINKING
                             onSpeechResultCallback?.invoke(text)
                         } else {
                             _voiceState.value = VoiceState.IDLE
@@ -277,7 +296,7 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
 
                     override fun onPartialResults(partialResults: Bundle?) {
                         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val text = matches?.firstOrNull()?.trim()
+                        val text = matches?.firstOrNull { it.isNotBlank() }?.trim()
                         if (!text.isNullOrBlank()) {
                             _partialTranscript.value = text
                             onPartialSpeechResultCallback?.invoke(text)
@@ -294,10 +313,11 @@ class NiraSpeechManager(private val context: Context) : TextToSpeech.OnInitListe
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, tag)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 100L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+                    putExtra("android.speech.extra.DICTATION_MODE", true)
                 }
 
                 speechRecognizer?.startListening(intent)
